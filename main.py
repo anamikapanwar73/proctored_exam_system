@@ -23,8 +23,8 @@ DATABASE_URL_MYSQL = "mysql+pymysql://Anamika:Anamika%40123@127.0.0.1:3306/examd
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
     # Agar deployment par 'DATABASE_URL' nahi milta, toh local config use karein.
-    "mysql+pymysql://Anamika:Anamika%40123@127.0.0.1:3306/examdb" 
-)
+    "mysql+pymysql://Anamika:Anamika%40123@127.0.0.1:3306/examdb"
+).replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
