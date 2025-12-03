@@ -1,99 +1,115 @@
-import sqlite3
+import os
 import json
 from flask import Flask, request, redirect, url_for, session, g
 from werkzeug.security import generate_password_hash, check_password_hash
-import os
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 from datetime import datetime
 
 # --- Configuration and Initialization ---
 app = Flask(__name__)
-# IMPORTANT: In a real app, use a strong, complex secret key from environment variables.
-app.secret_key = 'super_secret_exam_key_for_session_management'
-DATABASE = os.path.join(app.root_path, 'exam_system.db')
+# IMPORTANT: Use environment variable for security
+app.secret_key = os.environ.get(
+    'SECRET_KEY', 'default_super_secret_exam_key_for_session_management')
+
+# --- SQLAlchemy / MySQL Database Setup ---
+
+# Aapki HeidiSQL details ke aadhar par Direct MySQL connection URL.
+# Host: 127.0.0.1, User: Anamika, Password: Anamika@123, Port: 3306
+# Agar aapka Database ka naam 'examdb' nahi hai, toh yahan badal dein:
+DATABASE_URL_MYSQL = "mysql+pymysql://Anamika:Anamika%40123@127.0.0.1:3306/examdb"
+
+# Yahan hum hardcode kar rahe hain, lekin production mein environment variable use karna chahiye.
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL',
+    # Agar deployment par 'DATABASE_URL' nahi milta, toh local config use karein.
+    "mysql+pymysql://Anamika:Anamika%40123@127.0.0.1:3306/examdb" 
+)
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Database object
+db = SQLAlchemy(app)
+
+# --- Database Models (Tables) ---
 
 
-def get_db():
-    """Connects to the SQLite database and ensures row factory returns dict-like objects."""
-    db = getattr(g, '_database', None)
-    if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
-        # Allows accessing columns by name (like dictionary keys)
-        db.row_factory = sqlite3.Row
-    return db
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(10), nullable=False)  # 'admin' or 'student'
+
+    # Relationship to results (lazy='dynamic' for efficiency)
+    results = db.relationship('Result', backref='user_rel', lazy='dynamic')
 
 
-@app.teardown_appcontext
-def close_connection(exception):
-    """Closes the database connection at the end of the request."""
-    db = getattr(g, '_database', None)
-    if db is not None:
-        db.close()
+class Question(db.Model):
+    __tablename__ = 'questions'
+    id = db.Column(db.Integer, primary_key=True)
+    question_text = db.Column(db.Text, nullable=False)
+    options = db.Column(db.Text, nullable=False)  # JSON string of options
+    correct_option = db.Column(db.String(120), nullable=False)
+    topic = db.Column(db.String(50))
+
+
+class Result(db.Model):
+    __tablename__ = 'results'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    score = db.Column(db.Integer, nullable=False)
+    total_questions = db.Column(db.Integer, nullable=False)
+    # MySQL/MariaDB default for DateTime is fine.
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+# --- Initialization Functions (Using SQLAlchemy) ---
 
 
 def init_db():
-    """Initializes the database schema if tables do not exist."""
+    """Initializes the database schema and creates the initial admin."""
     with app.app_context():
-        db = get_db()
-        cursor = db.cursor()
-
-        # Table 1: Users (Admin/Student authentication)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL -- 'admin' or 'student'
-            )
-        """)
-
-        # Table 2: Questions (Exam content)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS questions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                question_text TEXT NOT NULL,
-                options TEXT NOT NULL, -- JSON string of options (A, B, C, D)
-                correct_option TEXT NOT NULL, -- e.g., "Option B"
-                topic TEXT
-            )
-        """)
-
-        # Table 3: Results (Student scores)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                score INTEGER NOT NULL,
-                total_questions INTEGER NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            )
-        """)
-        db.commit()
+        # Make sure the 'examdb' database exists in HeidiSQL first!
+        try:
+            db.create_all()
+            print("Database tables created using SQLAlchemy on MySQL.")
+            create_initial_admin()
+        except Exception as e:
+            print(
+                "-----------------------------------------------------------------------")
+            print(f"DATABASE CONNECTION ERROR: {e}")
+            print(
+                "Ensure 'examdb' database exists in HeidiSQL and is selected for the user.")
+            print(
+                "-----------------------------------------------------------------------")
 
 
 def create_initial_admin():
-    """Creates a default admin user for initial access."""
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
-    if cursor.fetchone()[0] == 0:
-        admin_username = 'admin'
-        admin_password = 'adminpassword'
-        hashed_password = generate_password_hash(admin_password)
-        cursor.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-            (admin_username, hashed_password, 'admin')
-        )
-        db.commit()
-        print(f"Default admin created: {admin_username}/{admin_password}")
+    """Creates a default admin user if one doesn't exist."""
+    with app.app_context():
+        admin_exists = User.query.filter_by(role='admin').first()
+
+        if not admin_exists:
+            admin_username = 'admin'
+            admin_password = 'adminpassword'
+            hashed_password = generate_password_hash(admin_password)
+
+            new_admin = User(
+                username=admin_username,
+                password_hash=hashed_password,
+                role='admin'
+            )
+
+            db.session.add(new_admin)
+            db.session.commit()
+            print(f"Default admin created: {admin_username}/{admin_password}")
 
 
 # Run database initialization when the app starts
 with app.app_context():
     init_db()
-    create_initial_admin()
 
-# --- Core Exam Logic (Consolidated from exam_logic.py) ---
+# --- Core Exam Logic (Updated for SQLAlchemy) ---
 
 
 class ExamLogic:
@@ -101,17 +117,13 @@ class ExamLogic:
 
     @staticmethod
     def get_user_by_username(username):
-        db = get_db()
-        # Returns a dict-like row due to db.row_factory = sqlite3.Row
-        user = db.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
-        return user
+        return User.query.filter_by(username=username).first()
 
     @staticmethod
     def verify_login(username, password):
         user = ExamLogic.get_user_by_username(username)
-        if user and check_password_hash(user['password_hash'], password):
+        # Check password against the hashed value from the SQLAlchemy object
+        if user and check_password_hash(user.password_hash, password):
             return user
         return None
 
@@ -123,15 +135,17 @@ class ExamLogic:
             return "Username already exists. Please choose another."
 
         hashed_password = generate_password_hash(password)
-        db = get_db()
         try:
-            db.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                (username, hashed_password, 'student')
+            new_user = User(
+                username=username,
+                password_hash=hashed_password,
+                role='student'
             )
-            db.commit()
+            db.session.add(new_user)
+            db.session.commit()
             return None  # Success
         except Exception as e:
+            db.session.rollback()
             return f"Database error during registration: {e}"
 
     # --- Admin Functions ---
@@ -139,93 +153,111 @@ class ExamLogic:
     @staticmethod
     def add_question(question_text, options, correct_option, topic="General"):
         """Adds a new question to the database."""
-        db = get_db()
         try:
-            # Store options as a JSON string for flexible storage
             options_json = json.dumps(options)
-            db.execute(
-                "INSERT INTO questions (question_text, options, correct_option, topic) VALUES (?, ?, ?, ?)",
-                (question_text, options_json, correct_option, topic)
+
+            new_q = Question(
+                question_text=question_text,
+                options=options_json,
+                correct_option=correct_option,
+                topic=topic
             )
-            db.commit()
+
+            db.session.add(new_q)
+            db.session.commit()
             return True
         except Exception as e:
+            db.session.rollback()
             print(f"Error adding question: {e}")
             return False
 
     @staticmethod
     def get_all_questions():
         """Retrieves all questions for admin view."""
-        db = get_db()
-        questions = db.execute(
-            "SELECT * FROM questions ORDER BY topic, id").fetchall()
-        return [dict(q) for q in questions]  # Convert rows to dictionaries
+        # Query all questions, ordered by topic and id
+        questions = Question.query.order_by(Question.topic, Question.id).all()
+
+        # Convert objects to list of dictionaries for HTML rendering
+        return [{
+            'id': q.id,
+            'question_text': q.question_text,
+            'options': q.options,  # JSON string
+            'correct_option': q.correct_option,
+            'topic': q.topic
+        } for q in questions]
 
     @staticmethod
     def delete_question(question_id):
         """Deletes a question by its ID."""
-        db = get_db()
         try:
-            db.execute("DELETE FROM questions WHERE id = ?", (question_id,))
-            db.commit()
+            # Delete the question by ID
+            Question.query.filter_by(id=question_id).delete()
+            db.session.commit()
             return True
         except Exception as e:
+            db.session.rollback()
             print(f"Error deleting question: {e}")
             return False
 
     @staticmethod
     def get_all_results():
         """Retrieves all exam results joined with student usernames."""
-        db = get_db()
-        results = db.execute("""
-            SELECT r.*, u.username
-            FROM results r
-            JOIN users u ON r.user_id = u.id
-            ORDER BY r.timestamp DESC
-        """).fetchall()
-        return [dict(r) for r in results]
+        # Join Result and User tables
+        results = db.session.query(Result, User.username)\
+            .join(User, Result.user_id == User.id)\
+            .order_by(Result.timestamp.desc())\
+            .all()
+
+        # Convert joined objects to list of dictionaries
+        return [{
+            'id': r.id,
+            'user_id': r.user_id,
+            'score': r.score,
+            'total_questions': r.total_questions,
+            # Format the datetime object to a string for HTML rendering
+            'timestamp': r.timestamp.strftime('%Y-%m-%d %H:%M'),
+            'username': username
+        } for r, username in results]
 
     # --- Student Functions ---
 
     @staticmethod
     def get_exam_questions():
         """Retrieves questions ready for the student exam."""
-        db = get_db()
-        questions = db.execute(
-            "SELECT id, question_text, options FROM questions").fetchall()
+        questions = Question.query.all()
 
         exam_questions = []
         for q in questions:
-            q_dict = dict(q)
+            q_dict = {
+                'id': q.id,
+                'question_text': q.question_text,
+                'options': q.options  # Still JSON string
+            }
             try:
                 # Deserialize options from JSON string
                 q_dict['options'] = json.loads(q_dict['options'])
                 exam_questions.append(q_dict)
             except json.JSONDecodeError:
-                print(f"Error decoding JSON options for question ID {q['id']}")
+                print(f"Error decoding JSON options for question ID {q.id}")
                 continue
         return exam_questions
 
     @staticmethod
     def submit_exam(user_id, answers):
         """Processes the student's submitted answers, calculates score, and saves the result."""
-        db = get_db()
         score = 0
         total_questions = 0
 
-        # 1. Get correct answers for all submitted questions
         question_ids = list(answers.keys())
         if not question_ids:
             return 0, 0
 
-        placeholders = ','.join('?' for _ in question_ids)
-        correct_answers_db = db.execute(
-            f"SELECT id, correct_option FROM questions WHERE id IN ({placeholders})",
-            question_ids
-        ).fetchall()
+        # 1. Get correct answers for all submitted questions
+        correct_answers_db = Question.query.filter(
+            Question.id.in_(question_ids)).all()
 
-        correct_answers_map = {str(q['id']): q['correct_option']
-                               for q in correct_answers_db}
+        correct_answers_map = {
+            str(q.id): q.correct_option for q in correct_answers_db}
         total_questions = len(correct_answers_map)
 
         # 2. Score the exam
@@ -235,12 +267,15 @@ class ExamLogic:
 
         # 3. Save the result
         try:
-            db.execute(
-                "INSERT INTO results (user_id, score, total_questions) VALUES (?, ?, ?)",
-                (user_id, score, total_questions)
+            new_result = Result(
+                user_id=user_id,
+                score=score,
+                total_questions=total_questions
             )
-            db.commit()
+            db.session.add(new_result)
+            db.session.commit()
         except Exception as e:
+            db.session.rollback()
             print(f"Error saving result: {e}")
 
         return score, total_questions
@@ -248,14 +283,23 @@ class ExamLogic:
     @staticmethod
     def get_student_results(user_id):
         """Retrieves a specific student's past exam results."""
-        db = get_db()
-        results = db.execute(
-            "SELECT * FROM results WHERE user_id = ? ORDER BY timestamp DESC",
-            (user_id,)
-        ).fetchall()
-        return [dict(r) for r in results]
+        results = Result.query.filter_by(user_id=user_id).order_by(
+            Result.timestamp.desc()).all()
 
-# --- HTML Template Functions (Frontend) ---
+        # Convert objects to list of dictionaries
+        return [{
+            'id': r.id,
+            'user_id': r.user_id,
+            'score': r.score,
+            'total_questions': r.total_questions,
+            # Format the datetime object to a string for HTML rendering
+            'timestamp': r.timestamp.strftime('%Y-%m-%d %H:%M')
+        } for r in results]
+
+# --- HTML Template Functions (Frontend) (Same as before) ---
+# ... (html_header, html_footer, nav_bar, login_html, register_html,
+#      admin_dashboard_html, student_dashboard_html, take_exam_html,
+#      exam_result_html functions are unchanged) ...
 
 
 def html_header(title):
@@ -408,7 +452,6 @@ def admin_dashboard_html(username, message="", questions=None, results=None):
             <td class="px-3 py-3 whitespace-nowrap text-sm text-green-600 font-semibold">{q['correct_option']}</td>
             <td class="px-3 py-3 whitespace-nowrap text-sm text-gray-500">{q['topic']}</td>
             <td class="px-3 py-3 whitespace-nowrap text-right text-sm font-medium">
-                <!-- DELETE FORM: Submits question_id to the delete endpoint -->
                 <form method="POST" action="{url_for('admin_delete_question')}" onsubmit="return confirm('Confirm deletion of question ID {q['id']}?');" class="inline">
                     <input type="hidden" name="question_id" value="{q['id']}">
                     <button type="submit" class="text-red-600 hover:text-red-900 ml-4 p-1 rounded-md bg-red-50 hover:bg-red-100 transition duration-150">Delete</button>
@@ -419,11 +462,12 @@ def admin_dashboard_html(username, message="", questions=None, results=None):
 
     result_rows = ""
     for r in results:
+        # NOTE: Timestamp is already formatted as string in ExamLogic.get_all_results
         result_rows += f"""
         <tr class="border-b hover:bg-gray-50">
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{r['username']}</td>
             <td class="px-6 py-4 whitespace-nowrap text-lg text-gray-800 font-bold">{r['score']} / {r['total_questions']}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{datetime.strptime(r['timestamp'].split('.')[0], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M')}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{r['timestamp']}</td> 
         </tr>
         """
 
@@ -431,7 +475,6 @@ def admin_dashboard_html(username, message="", questions=None, results=None):
     <div class="space-y-12">
         {f'<div class="p-3 bg-green-100 text-green-700 rounded-md shadow-md">{message}</div>' if message else ''}
         
-        <!-- Section 1: Add New Question FORM -->
         <div class="card">
             <h3 class="text-xl font-bold mb-4 text-indigo-700">Add New Question</h3>
             <form method="POST" action="{url_for('admin_add_question')}" class="space-y-4">
@@ -476,7 +519,6 @@ def admin_dashboard_html(username, message="", questions=None, results=None):
             </form>
         </div>
 
-        <!-- Section 2: Question Management Table (with Delete buttons) -->
         <div class="card overflow-x-auto">
             <h3 class="text-xl font-bold mb-4 text-indigo-700">Existing Questions ({len(questions)} Total)</h3>
             <table class="min-w-full divide-y divide-gray-200">
@@ -496,7 +538,6 @@ def admin_dashboard_html(username, message="", questions=None, results=None):
             </table>
         </div>
 
-        <!-- Section 3: All Student Results -->
         <div class="card overflow-x-auto">
             <h3 class="text-xl font-bold mb-4 text-indigo-700">All Student Results ({len(results)} Entries)</h3>
             <table class="min-w-full divide-y divide-gray-200">
@@ -522,11 +563,12 @@ def student_dashboard_html(username, user_id, results=None):
 
     result_rows = ""
     for r in results:
+        # NOTE: Timestamp is already formatted as string in ExamLogic.get_student_results
         result_rows += f"""
         <tr class="border-b hover:bg-gray-50">
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{r['id']}</td>
             <td class="px-6 py-4 whitespace-nowrap text-lg text-gray-800 font-bold">{r['score']} / {r['total_questions']}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{datetime.strptime(r['timestamp'].split('.')[0], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M')}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{r['timestamp']}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm">
                 <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full {'bg-green-100 text-green-800' if r['score'] >= r['total_questions'] / 2 else 'bg-red-100 text-red-800'}">
                     {'Passed' if r['score'] >= r['total_questions'] / 2 else 'Needs Review'}
@@ -545,7 +587,6 @@ def student_dashboard_html(username, user_id, results=None):
             </a>
         </div>
 
-        <!-- Section: Past Results -->
         <div class="card overflow-x-auto">
             <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">Your Past Exam Results ({len(results)} History)</h3>
             <table class="min-w-full divide-y divide-gray-200">
@@ -654,7 +695,7 @@ def exam_result_html(username, score, total_questions):
     """ + html_footer()
 
 
-# --- Flask Routes (Web Application Flow) ---
+# --- Flask Routes (Web Application Flow) (Same as before) ---
 
 def requires_auth(role):
     """Decorator to check user session and role."""
@@ -669,7 +710,8 @@ def requires_auth(role):
                 else:
                     return redirect(url_for('login'))
             return f(*args, **kwargs)
-        decorated.__name__ = f.__name__  # Fix for flask function naming conflict
+        # Fix for flask function naming conflict
+        decorated.__name__ = f.__name__
         return decorated
     return wrapper
 
@@ -693,18 +735,17 @@ def login():
         password = request.form['password']
 
         user = ExamLogic.verify_login(username, password)
-
+        # 'user' is now a SQLAlchemy User object
         if user:
-            session['username'] = user['username']
-            session['role'] = user['role']
-            session['user_id'] = user['id']
-
-            if user['role'] == 'admin':
+            session['username'] = user.username
+            session['role'] = user.role
+            session['user_id'] = user.id
+            if user.role == 'admin':
                 return redirect(url_for('admin_dashboard'))
             else:
                 return redirect(url_for('student_dashboard'))
         else:
-            return login_html("Invalid username or password. Please try again.")
+            return login_html("Invalid username or password.")
 
     return login_html()
 
@@ -718,80 +759,73 @@ def register():
 
         error = ExamLogic.register_student(username, password)
 
-        if error:
-            return register_html(error)
-        else:
-            # Automatic login after successful registration
-            user = ExamLogic.get_user_by_username(username)
-            if user:
-                session['username'] = user['username']
-                session['role'] = user['role']
-                session['user_id'] = user['id']
-                return redirect(url_for('student_dashboard'))
-            # Should not happen if registration was successful
+        if error is None:
+            # Registration successful, redirect to login
             return redirect(url_for('login'))
+        else:
+            return register_html(error)
 
     return register_html()
-
-
-@app.route('/logout')
-def logout():
-    """Logs the user out by clearing the session."""
-    session.clear()
-    return redirect(url_for('login'))
 
 # --- Admin Routes ---
 
 
 @app.route('/admin')
 @requires_auth('admin')
-def admin_dashboard():
-    """Admin dashboard view."""
+def admin_dashboard(message=None):
+    """Admin Dashboard: shows questions, results, and add/delete forms."""
     questions = ExamLogic.get_all_questions()
     results = ExamLogic.get_all_results()
-    message = session.pop('message', None)
-    return admin_dashboard_html(session['username'], message, questions, results)
+
+    # Render the dashboard with data
+    return admin_dashboard_html(
+        session['username'],
+        message=message,
+        questions=questions,
+        results=results
+    )
 
 
 @app.route('/admin/add_question', methods=['POST'])
 @requires_auth('admin')
 def admin_add_question():
-    """Handles form submission for adding a new question."""
-    try:
-        question_text = request.form['question_text']
-        topic = request.form['topic']
-        correct_option = request.form['correct_option']
+    """Handles submission of new question form."""
+    question_text = request.form['question_text']
+    topic = request.form['topic']
+    correct_option = request.form['correct_option']
 
-        # Collect options into a list
-        options = [
-            request.form['option_a'],
-            request.form['option_b'],
-            request.form['option_c'],
-            request.form['option_d'],
-        ]
+    # Options list banao
+    options = [
+        request.form['option_a'],
+        request.form['option_b'],
+        request.form['option_c'],
+        request.form['option_d']
+    ]
 
-        if ExamLogic.add_question(question_text, options, correct_option, topic):
-            session['message'] = "Question added successfully!"
-        else:
-            session['message'] = "Failed to add question due to a database error."
+    success = ExamLogic.add_question(
+        question_text, options, correct_option, topic)
 
-    except Exception as e:
-        session['message'] = f"Error: Missing form data. {e}"
-
-    return redirect(url_for('admin_dashboard'))
+    if success:
+        return admin_dashboard(message="Question added successfully!")
+    else:
+        return admin_dashboard(message="Error adding question. Check server logs.")
 
 
 @app.route('/admin/delete_question', methods=['POST'])
 @requires_auth('admin')
 def admin_delete_question():
-    """Handles question deletion."""
-    question_id = request.form.get('question_id')
-    if question_id and ExamLogic.delete_question(question_id):
-        session['message'] = f"Question ID {question_id} deleted successfully."
-    else:
-        session['message'] = "Failed to delete question."
+    """Handles deletion of a question by ID."""
+    try:
+        question_id = int(request.form['question_id'])
+    except:
+        return admin_dashboard(message="Invalid question ID.")
 
-    return redirect(url_for('admin_dashboard'))
+    success = ExamLogic.delete_question(question_id)
+
+    if success:
+        return admin_dashboard(message=f"Question ID {question_id} deleted successfully.")
+    else:
+        return admin_dashboard(message=f"Error deleting question ID {question_id}.")
 
 # --- Student Routes ---
 
@@ -799,16 +833,21 @@ def admin_delete_question():
 @app.route('/student')
 @requires_auth('student')
 def student_dashboard():
-    """Student dashboard view, showing past results and exam link."""
+    """Student Dashboard: shows links to exam and past results."""
     user_id = session['user_id']
     results = ExamLogic.get_student_results(user_id)
-    return student_dashboard_html(session['username'], user_id, results)
+
+    return student_dashboard_html(
+        session['username'],
+        user_id,
+        results=results
+    )
 
 
 @app.route('/take_exam')
 @requires_auth('student')
 def take_exam():
-    """Displays the list of questions for the exam."""
+    """Presents the exam questions to the student."""
     questions = ExamLogic.get_exam_questions()
     return take_exam_html(session['username'], questions)
 
@@ -816,25 +855,30 @@ def take_exam():
 @app.route('/submit_exam', methods=['POST'])
 @requires_auth('student')
 def submit_exam():
-    """Processes submitted answers and displays the results."""
+    """Handles submission of the exam, scoring, and saving results."""
     user_id = session['user_id']
 
-    # Filter POST data to find only question answers (keys starting with 'question_')
     answers = {}
     for key, value in request.form.items():
         if key.startswith('question_'):
-            # Key is 'question_ID', extract ID for mapping
-            question_id = key.split('_')[1]
-            answers[question_id] = value
+            q_id = key.split('_')[1]
+            answers[q_id] = value
 
     score, total_questions = ExamLogic.submit_exam(user_id, answers)
 
-    # Store result in session to pass to the result page (or calculate on the fly)
     return exam_result_html(session['username'], score, total_questions)
 
+# --- General Routes ---
 
+
+@app.route('/logout')
+def logout():
+    """Clears the session and redirects to login."""
+    session.clear()
+    return redirect(url_for('login'))
+
+
+# Run the app (for local testing only)
 if __name__ == '__main__':
-    # For local development only. In production, gunicorn will run the app.
-    # Use HOST 0.0.0.0 so that container/host binding works if needed.
-    app.run(host='0.0.0.0', port=int(
-        os.environ.get('PORT', 5000)), debug=False)
+    # Yeh line local testing ke liye hai. Production mein Gunicorn use hoga.
+    app.run(debug=True)
