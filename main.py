@@ -9,7 +9,7 @@ from datetime import datetime
 app = Flask(__name__)
 # IMPORTANT: In a real app, use a strong, complex secret key from environment variables.
 app.secret_key = 'super_secret_exam_key_for_session_management'
-DATABASE = 'exam_system.db'
+DATABASE = os.path.join(app.root_path, 'exam_system.db')
 
 
 def get_db():
