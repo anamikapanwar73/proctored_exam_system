@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Admin – ExamPortal{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h3 class="fw-800 mb-0"><i class="fas fa-cog me-2 text-primary"></i>Admin Dashboard</h3>
+      <small class="text-muted">Manage exams and view all student results</small>
+    </div>
+    <a href="{{ url_for('admin_add_exam') }}" class="btn btn-primary fw-700">
+      <i class="fas fa-plus me-2"></i>Add New Exam
+    </a>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       🟢 LIVE MONITORING PANEL
+  ══════════════════════════════════════════════════════ -->
+  <div class="section-card mb-4" id="liveMonitorCard">
+    <div class="section-header d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center">
+        <span id="liveIndicator" style="width:12px;height:12px;background:#22c55e;border-radius:50%;display:inline-block;margin-right:8px;animation:blink 1s infinite;"></span>
+        <i class="fas fa-video me-2 text-success"></i>
+        <h6 class="mb-0 fw-700">Live Exam Monitoring</h6>
+        <span class="badge bg-success ms-2" id="liveCountBadge">0 Online</span>
+      </div>
+      <div>
+        <button class="btn btn-sm btn-outline-danger" id="toggleVideoBtn" onclick="toggleVideoFeeds()">
+          <i class="fas fa-camera me-1"></i>Show Video Feeds
+        </button>
+      </div>
+    </div>
+    <div class="section-body p-3">
+
+      <!-- LIVE STUDENT CARDS -->
+      <div id="liveStudentsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+        <div class="text-muted text-center py-4" id="noStudentsMsg">
+          <i class="fas fa-satellite-dish fa-2x mb-2 d-block text-secondary"></i>
+          No students currently taking an exam. Monitoring live...
+        </div>
+      </div>
+
+      <!-- VIDEO FEEDS PANEL (hidden by default) -->
+      <div id="videoFeedsPanel" style="display:none;margin-top:20px;">
+        <hr>
+        <h6 class="fw-700 mb-3"><i class="fas fa-th me-2"></i>HD Video Feeds</h6>
+        <div id="videoGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;"></div>
+      </div>
+
+      <!-- VIOLATION ALERTS LOG -->
+      <div style="margin-top:20px;">
+        <h6 class="fw-700 mb-2"><i class="fas fa-exclamation-triangle me-2 text-warning"></i>Live Violation Alerts</h6>
+        <div id="violationLog" style="max-height:200px;overflow-y:auto;background:#fff8f0;border:1px solid #fde68a;border-radius:8px;padding:10px;">
+          <div class="text-muted small" id="noViolations">No violations recorded yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXAMS TABLE -->
+  <div class="section-card mb-4">
+    <div class="section-header">
+      <i class="fas fa-book me-2 text-primary"></i>
+      <h6 class="mb-0 fw-700">All Exams</h6>
+    </div>
+    <div class="section-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>ID</th><th>Title</th><th>Duration</th><th>Total Marks</th>
+            <th>Pass %</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for exam in exams %}
+          <tr>
+            <td>{{ exam.id }}</td>
+            <td class="fw-600">{{ exam.title }}</td>
+            <td>{{ exam.duration_mins }} min</td>
+            <td>{{ exam.total_marks }}</td>
+            <td>{{ exam.pass_percentage }}%</td>
+            <td>
+              <span class="badge {{ 'bg-success' if exam.is_active else 'bg-secondary' }}">
+                {{ 'Active' if exam.is_active else 'Inactive' }}
+              </span>
+            </td>
+            <td>
+              <a href="{{ url_for('admin_add_questions', exam_id=exam.id) }}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-question-circle"></i> Questions
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RECENT RESULTS TABLE -->
+  <div class="section-card">
+    <div class="section-header">
+      <i class="fas fa-chart-bar me-2 text-success"></i>
+      <h6 class="mb-0 fw-700">Recent Student Results</h6>
+    </div>
+    <div class="section-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Student</th><th>Exam</th><th>Raw</th>
+            <th>Penalty</th><th>Final</th><th>%</th>
+            <th>Status</th><th>Submitted</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in recent_results %}
+          <tr>
+            <td class="fw-600">{{ r.full_name }}<br><small class="text-muted">@{{ r.username }}</small></td>
+            <td>{{ r.exam_title }}</td>
+            <td>{{ r.raw_score }}</td>
+            <td class="text-danger fw-600">-{{ r.penalty_points }}</td>
+            <td class="fw-700">{{ r.final_score }}</td>
+            <td>{{ r.percentage }}%</td>
+            <td>
+              <span class="badge {{ 'bg-success' if r.pass_fail == 'pass' else 'bg-danger' }}">
+                {{ r.pass_fail.upper() if r.pass_fail else 'N/A' }}
+              </span>
+            </td>
+            <td class="small text-muted">
+              {{ r.submitted_at.strftime('%d %b %Y') if r.submitted_at else 'N/A' }}
+            </td>
+            <td>
+              <a href="{{ url_for('results', session_id=r.id) }}" class="btn btn-xs btn-outline-secondary">
+                <i class="fas fa-eye"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<style>
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.student-live-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: border-color 0.3s;
+}
+.student-live-card.has-violation { border-color: #f59e0b; }
+.student-live-card.offline { opacity: 0.5; border-style: dashed; }
+.stat-pill { display:inline-flex;align-items:center;gap:4px;background:#f1f5f9;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600; }
+.video-feed-box { background:#000;border-radius:10px;overflow:hidden;border:2px solid #334155; }
+.video-feed-box img { width:100%;display:block; }
+.video-feed-label { background:rgba(0,0,0,0.7);color:#fff;font-size:11px;padding:4px 8px; }
+.vio-log-row { font-size:12px;padding:4px 0;border-bottom:1px solid #fde68a;display:flex;align-items:center;gap:6px; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const socket = io();
+let studentData = {};
+let videoFeeds  = {};
+let showingVideo = false;
+
+socket.on("connect", () => {
+  socket.emit("admin_join", {});
+});
+
+// ── RECEIVE LIVE STUDENT LIST UPDATE ─────────────────────
+socket.on("student_list_update", (students) => {
+  studentData = {};
+  students.forEach(s => { studentData[s.session_id] = s; });
+  renderStudentCards(students);
+});
+
+// ── RECEIVE VIOLATION ALERT ───────────────────────────────
+socket.on("violation_alert", (data) => {
+  appendViolationLog(data);
+  // Highlight student card
+  const card = document.getElementById(`scard-${data.session_id}`);
+  if (card) {
+    card.classList.add("has-violation");
+    setTimeout(() => card.classList.remove("has-violation"), 3000);
+  }
+});
+
+// ── RECEIVE VIDEO FRAME ───────────────────────────────────
+socket.on("student_frame", (data) => {
+  videoFeeds[data.session_id] = data;
+  if (showingVideo) renderVideoFeed(data);
+});
+
+function renderStudentCards(students) {
+  const grid = document.getElementById("liveStudentsGrid");
+  const noMsg = document.getElementById("noStudentsMsg");
+  const onlineCount = students.filter(s => s.status === "online").length;
+
+  document.getElementById("liveCountBadge").textContent = `${onlineCount} Online`;
+
+  if (students.length === 0) {
+    grid.innerHTML = `<div class="text-muted text-center py-4" id="noStudentsMsg">
+      <i class="fas fa-satellite-dish fa-2x mb-2 d-block text-secondary"></i>
+      No students currently taking an exam. Monitoring live...
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = "";
+  students.forEach(s => {
+    const isOnline   = s.status === "online";
+    const pct        = s.total > 0 ? Math.round((s.answered / s.total) * 100) : 0;
+    const sevColor   = s.violations === 0 ? "#22c55e" : s.violations < 3 ? "#f59e0b" : "#ef4444";
+
+    const card = document.createElement("div");
+    card.className = `student-live-card${isOnline ? "" : " offline"}`;
+    card.id = `scard-${s.session_id}`;
+    card.innerHTML = `
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div>
+          <div class="fw-700" style="font-size:14px;">${s.student_name}</div>
+          <div class="text-muted" style="font-size:12px;">@${s.username}</div>
+        </div>
+        <span class="badge ${isOnline ? "bg-success" : "bg-secondary"}">${isOnline ? "● LIVE" : "○ Offline"}</span>
+      </div>
+      <div class="text-muted small mb-2" style="font-size:11px;">${s.exam_title}</div>
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        <span class="stat-pill"><i class="fas fa-check-circle text-success"></i> ${s.answered}/${s.total} Answered</span>
+        <span class="stat-pill" style="color:${sevColor};"><i class="fas fa-exclamation-triangle"></i> ${s.violations} Violations</span>
+        <span class="stat-pill text-danger"><i class="fas fa-minus-circle"></i> -${s.penalty} pts</span>
+      </div>
+      <div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:#3b82f6;border-radius:3px;transition:width 0.5s;"></div>
+      </div>
+      <div class="text-muted text-end" style="font-size:11px;margin-top:3px;">${pct}% complete</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function renderVideoFeed(data) {
+  const grid = document.getElementById("videoGrid");
+  let box = document.getElementById(`vfeed-${data.session_id}`);
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "video-feed-box";
+    box.id = `vfeed-${data.session_id}`;
+    box.innerHTML = `
+      <div class="video-feed-label">${data.student_name} (@${data.username})</div>
+      <img id="vimg-${data.session_id}" src="${data.frame}" alt="Live feed" style="width:100%;display:block;"/>
+    `;
+    grid.appendChild(box);
+  } else {
+    document.getElementById(`vimg-${data.session_id}`).src = data.frame;
+  }
+}
+
+function toggleVideoFeeds() {
+  showingVideo = !showingVideo;
+  const panel = document.getElementById("videoFeedsPanel");
+  const btn   = document.getElementById("toggleVideoBtn");
+  panel.style.display = showingVideo ? "block" : "none";
+  btn.innerHTML = showingVideo
+    ? '<i class="fas fa-eye-slash me-1"></i>Hide Video Feeds'
+    : '<i class="fas fa-camera me-1"></i>Show Video Feeds';
+
+  if (showingVideo) {
+    const grid = document.getElementById("videoGrid");
+    grid.innerHTML = "";
+    Object.values(videoFeeds).forEach(renderVideoFeed);
+  }
+}
+
+function appendViolationLog(data) {
+  const log = document.getElementById("violationLog");
+  document.getElementById("noViolations")?.remove();
+  const severityColor = { HIGH: "#ef4444", MEDIUM: "#f59e0b", LOW: "#6b7280" };
+  const color = severityColor[data.severity] || "#6b7280";
+  const now = new Date().toLocaleTimeString();
+  const row = document.createElement("div");
+  row.className = "vio-log-row";
+  row.innerHTML = `
+    <span style="color:${color};font-weight:700;">[${data.severity}]</span>
+    <strong>${data.student_name}</strong>
+    <span>— ${data.violation_type?.replace(/_/g," ")}</span>
+    <span class="ms-auto text-muted">${now}</span>
+  `;
+  log.insertBefore(row, log.firstChild);
+  // Keep max 50 entries
+  while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+</script>
+{% endblock %}

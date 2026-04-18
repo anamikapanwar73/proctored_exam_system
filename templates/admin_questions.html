@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Questions – {{ exam.title }}{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:760px;">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h5 class="fw-800 mb-0">{{ exam.title }}</h5>
+      <small class="text-muted">{{ questions|length }} question(s) added</small>
+    </div>
+    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back to Admin
+    </a>
+  </div>
+
+  <!-- ADD QUESTION FORM -->
+  <div class="section-card mb-4">
+    <div class="section-header">
+      <i class="fas fa-plus me-2 text-primary"></i>
+      <h6 class="mb-0 fw-700">Add Question</h6>
+    </div>
+    <div class="section-body">
+      <form method="POST">
+        <div class="mb-3">
+          <label class="form-label fw-600">Question Text</label>
+          <textarea name="question_text" class="form-control" rows="2" required placeholder="Write your question here..."></textarea>
+        </div>
+        <div class="row g-2 mb-3">
+          {% for opt in ['A','B','C','D'] %}
+          <div class="col-sm-6">
+            <label class="form-label fw-600 small">Option {{ opt }}</label>
+            <input type="text" name="option_{{ opt.lower() }}" class="form-control form-control-sm" required/>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-sm-4">
+            <label class="form-label fw-600">Correct Answer</label>
+            <select name="correct_ans" class="form-select" required>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label fw-600">Marks</label>
+            <input type="number" name="marks" class="form-control" value="1" min="1"/>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-success fw-700">
+          <i class="fas fa-plus me-2"></i>Add Question
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- EXISTING QUESTIONS -->
+  {% if questions %}
+  <div class="section-card">
+    <div class="section-header">
+      <i class="fas fa-list me-2 text-success"></i>
+      <h6 class="mb-0 fw-700">Existing Questions</h6>
+    </div>
+    <div class="section-body">
+      {% for q in questions %}
+      <div class="question-card mb-3">
+        <div class="question-num">Q{{ loop.index }}
+          <span class="badge bg-secondary ms-2">{{ q.marks }} mark</span>
+        </div>
+        <p class="fw-600 mb-2">{{ q.question_text }}</p>
+        <div class="d-flex flex-wrap gap-2">
+          {% for key, val in [('A',q.option_a),('B',q.option_b),('C',q.option_c),('D',q.option_d)] %}
+          <span class="ans-chip {{ 'chip-correct' if key == q.correct_ans else 'chip-plain' }}">
+            {{ key }}: {{ val }} {% if key == q.correct_ans %}<i class="fas fa-check ms-1"></i>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

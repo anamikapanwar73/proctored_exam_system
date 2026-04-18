@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Camera Check – ExamPortal{% endblock %}
+{% block content %}
+<div style="display:flex; justify-content:center; align-items:center; min-height:80vh;">
+  <div style="text-align:center; max-width:480px; padding:30px;">
+
+    <div id="step1">
+      <div style="font-size:64px;">📷</div>
+      <h4 style="margin:16px 0 8px; font-weight:700;">Camera Permission Required</h4>
+      <p style="color:#6b7280; margin-bottom:24px;">
+        Exam requires your webcam for proctoring.<br>
+        Click the button below — browser will ask for camera access.
+      </p>
+      <button onclick="askCamera()" class="btn btn-primary btn-lg" style="min-width:200px;">
+        <i class="fas fa-camera me-2"></i>Allow Camera & Start Exam
+      </button>
+    </div>
+
+    <div id="step2" style="display:none;">
+      <div style="font-size:64px;">⏳</div>
+      <h4 style="margin:16px 0 8px; font-weight:700;">Waiting for Permission...</h4>
+      <p style="color:#6b7280;">Please click <strong>Allow</strong> in the browser popup above.</p>
+      <div class="spinner-border text-primary mt-3" role="status"></div>
+    </div>
+
+    <div id="step3" style="display:none;">
+      <div style="font-size:64px;">✅</div>
+      <h4 style="margin:16px 0 8px; font-weight:700; color:#16a34a;">Camera Ready!</h4>
+      <p style="color:#6b7280;">Redirecting to exam...</p>
+      <video id="previewVideo" autoplay muted playsinline
+        style="width:240px; height:180px; border-radius:10px; border:3px solid #16a34a;
+               margin-top:10px; transform:scaleX(-1); filter:brightness(1.2);">
+      </video>
+    </div>
+
+    <div id="step4" style="display:none;">
+      <div style="font-size:64px;">🚫</div>
+      <h4 style="margin:16px 0 8px; font-weight:700; color:#dc2626;">Camera Blocked!</h4>
+      <p style="color:#6b7280; margin-bottom:16px;">
+        Click the 🔒 icon in address bar → <strong>Camera</strong> → <strong>Allow</strong><br>
+        Then click Try Again.
+      </p>
+      <button onclick="askCamera()" class="btn btn-warning">🔄 Try Again</button>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let stream = null;
+
+async function askCamera() {
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step4').style.display = 'none';
+  document.getElementById('step2').style.display = 'block';
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width:  { ideal: 1280, min: 640 },
+        height: { ideal: 720, min: 480 },
+        facingMode: "user",
+        frameRate: { ideal: 15 }
+      },
+      audio: false
+    });
+
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('step3').style.display = 'block';
+    document.getElementById('previewVideo').srcObject = stream;
+
+    setTimeout(() => {
+      stream.getTracks().forEach(t => t.stop());
+      document.getElementById('startForm').submit();
+    }, 1500);
+
+  } catch(err) {
+    console.error('Camera error:', err);
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('step4').style.display = 'block';
+  }
+}
+
+window.addEventListener('load', askCamera);
+</script>
+
+<form id="startForm" method="POST" action="/exam/{{ exam_id }}/start" style="display:none;"></form>
+{% endblock %}

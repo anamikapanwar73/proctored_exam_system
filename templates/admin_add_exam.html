@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Add Exam – Admin{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:600px;">
+  <div class="section-card">
+    <div class="section-header">
+      <i class="fas fa-plus-circle me-2 text-primary"></i>
+      <h6 class="mb-0 fw-700">Create New Exam</h6>
+    </div>
+    <div class="section-body">
+      <form method="POST">
+        <div class="mb-3">
+          <label class="form-label fw-600">Exam Title</label>
+          <input type="text" name="title" class="form-control" required placeholder="e.g. Python Basics Quiz"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-600">Description</label>
+          <textarea name="description" class="form-control" rows="3" placeholder="Brief description of this exam"></textarea>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-sm-4">
+            <label class="form-label fw-600">Duration (min)</label>
+            <input type="number" name="duration_mins" class="form-control" value="30" min="5" required/>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label fw-600">Total Marks</label>
+            <input type="number" name="total_marks" class="form-control" value="10" min="1" required/>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label fw-600">Pass % </label>
+            <input type="number" name="pass_percentage" class="form-control" value="60" min="1" max="100" step="0.5" required/>
+          </div>
+        </div>
+        <div class="d-flex gap-3">
+          <button type="submit" class="btn btn-primary fw-700">
+            <i class="fas fa-save me-2"></i>Create & Add Questions
+          </button>
+          <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}{{ exam.title }} – ExamPortal{% endblock %}
+
+{% block extra_css %}
+<style>
+  body { background: #f0f4f8; }
+  .exam-wrapper { display: grid; grid-template-columns: 1fr 300px; gap: 20px; padding: 20px; max-width: 1200px; margin: 0 auto; }
+  @media(max-width:900px){ .exam-wrapper { grid-template-columns:1fr; } }
+
+  #webcamContainer {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    background: #000;
+    border: 3px solid #0d6efd;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    width: 240px;
+  }
+  #webcamContainer video {
+    width: 240px;
+    height: 180px;
+    display: block;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  #webcamLabel {
+    background: rgba(13,110,253,0.92);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #camStatus {
+    width: 9px; height: 9px;
+    background: #ff4444;
+    border-radius: 50%;
+    display: inline-block;
+    animation: blink 1s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  #camStatus.live { background: #22c55e; }
+  #camPermBtn {
+    display: none;
+    margin: 6px auto;
+    font-size: 11px;
+    padding: 4px 10px;
+    background: #0d6efd;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 90%;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- VIOLATION TOAST -->
+<div id="violationToast" class="violation-toast" style="display:none;">
+  <div class="violation-toast-inner">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    <span id="violationMsg"></span>
+  </div>
+</div>
+
+<!-- WEBCAM BOX top-left -->
+<div id="webcamContainer">
+  <div id="webcamLabel">
+    <span id="camStatus"></span>
+    <span id="camLabelText">Camera: Connecting...</span>
+  </div>
+  <video id="webcamVideo" autoplay muted playsinline></video>
+  <button id="camPermBtn" onclick="startWebcam()">🔄 Allow Camera</button>
+</div>
+
+<div class="exam-wrapper">
+
+  <!-- LEFT: QUESTIONS -->
+  <div>
+    <div class="exam-header-bar mb-3">
+      <div>
+        <h4 class="fw-800 mb-0">{{ exam.title }}</h4>
+        <small class="text-muted">Answer all questions before time runs out</small>
+      </div>
+      <div class="timer-box" id="timerBox">
+        <i class="fas fa-clock me-1"></i>
+        <span id="timerDisplay">{{ '%02d:%02d'|format(time_remaining//60, time_remaining%60) }}</span>
+      </div>
+    </div>
+
+    <form id="examForm">
+      <input type="hidden" name="session_id" id="sessionId" value="{{ exam_session.id }}"/>
+
+      {% for q in questions %}
+      <div class="question-card mb-3" id="qcard-{{ loop.index }}">
+        <div class="question-num">Q{{ loop.index }}
+          <span class="question-marks ms-2 text-muted small">({{ q.marks }} mark{{ 's' if q.marks > 1 }})</span>
+        </div>
+        <p class="question-text fw-600 mb-3">{{ q.question_text }}</p>
+        <div class="options-grid">
+          {% for opt_key, opt_label in [('A', q.option_a), ('B', q.option_b), ('C', q.option_c), ('D', q.option_d)] %}
+          <label class="option-label {% if saved_answers.get(q.id) == opt_key %}selected{% endif %}"
+                 id="opt-{{ q.id }}-{{ opt_key }}">
+            <input type="radio" name="q_{{ q.id }}" value="{{ opt_key }}"
+                   data-qid="{{ q.id }}"
+                   {% if saved_answers.get(q.id) == opt_key %}checked{% endif %}
+                   class="answer-radio"/>
+            <span class="option-badge">{{ opt_key }}</span>
+            <span class="option-text">{{ opt_label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+
+      <div class="submit-bar">
+        <div class="text-muted small">
+          <i class="fas fa-info-circle me-1"></i>
+          Make sure you've answered all questions before submitting.
+        </div>
+        <button type="button" id="submitBtn" class="btn btn-success btn-lg fw-700 px-5"
+                onclick="confirmSubmit()">
+          <i class="fas fa-paper-plane me-2"></i>Submit Exam
+        </button>
+      </div>
+    </form>
+
+    <form id="realSubmitForm" method="POST" action="{{ url_for('submit_exam', exam_id=exam.id) }}" style="display:none;"></form>
+  </div>
+
+  <!-- RIGHT: SIDEBAR -->
+  <div>
+    <div class="sidebar-card mb-3">
+      <div class="sidebar-title"><i class="fas fa-th me-2"></i>Question Navigator</div>
+      <div class="q-navigator">
+        {% for q in questions %}
+        <div class="q-nav-dot {% if saved_answers.get(q.id) %}answered{% endif %}"
+             id="qnav-{{ loop.index }}"
+             onclick="scrollToQ({{ loop.index }})">{{ loop.index }}</div>
+        {% endfor %}
+      </div>
+      <div class="nav-legend mt-2">
+        <span class="dot-answered"></span> Answered &nbsp;
+        <span class="dot-unanswered"></span> Unanswered
+      </div>
+    </div>
+
+    <div class="sidebar-card mb-3" id="violationPanel">
+      <div class="sidebar-title text-warning">
+        <i class="fas fa-shield-alt me-2"></i>Exam Monitor
+      </div>
+      <div class="small text-muted mb-2">Violations deduct points from your score.</div>
+      <div class="violation-stat">
+        <span>Total Violations:</span>
+        <strong id="vioCount">0</strong>
+      </div>
+      <div class="violation-stat">
+        <span>Points Deducted:</span>
+        <strong class="text-danger" id="penaltyDisplay">-{{ total_penalty }}</strong>
+      </div>
+      <div class="penalty-rules mt-2">
+        <div class="small fw-600 mb-1">Penalty Rules:</div>
+        <div class="rule-row"><span class="badge bg-danger me-1">HIGH</span> Right-click, Dev tools → −10 pts</div>
+        <div class="rule-row"><span class="badge bg-warning text-dark me-1">MED</span> Tab switch, Copy → −5 pts</div>
+        <div class="rule-row"><span class="badge bg-secondary me-1">LOW</span> Mouse leave → −2 pts</div>
+      </div>
+    </div>
+
+    <div class="sidebar-card">
+      <div class="sidebar-title"><i class="fas fa-info-circle me-2"></i>Exam Info</div>
+      <div class="info-row"><span>Duration</span><strong>{{ exam.duration_mins }} min</strong></div>
+      <div class="info-row"><span>Total Marks</span><strong>{{ exam.total_marks }}</strong></div>
+      <div class="info-row"><span>Questions</span><strong>{{ questions|length }}</strong></div>
+      <div class="info-row"><span>Pass Mark</span><strong>{{ exam.pass_percentage }}%</strong></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- SUBMIT MODAL -->
+<div class="modal fade" id="submitModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content rounded-4">
+      <div class="modal-header border-0">
+        <h5 class="modal-title fw-800">Submit Exam?</h5>
+      </div>
+      <div class="modal-body">
+        <p id="submitSummary"></p>
+        <div class="alert alert-warning small">
+          <i class="fas fa-exclamation-triangle me-1"></i>
+          Once submitted, you cannot change your answers.
+        </div>
+      </div>
+      <div class="modal-footer border-0">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success fw-700" onclick="doSubmit()">
+          <i class="fas fa-check me-1"></i>Confirm Submit
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const SESSION_ID    = {{ exam_session.id }};
+const TOTAL_QUESTIONS = {{ questions|length }};
+let timeLeft       = {{ time_remaining }};
+let violationCount = 0;
+let totalPenalty   = {{ total_penalty }};
+
+// ── SOCKET.IO ────────────────────────────────────────────
+const socket = io();
+socket.on("connect", () => {
+  socket.emit("student_join", {
+    session_id:   SESSION_ID,
+    student_name: "{{ session.full_name }}",
+    username:     "{{ session.username }}",
+    exam_title:   "{{ exam.title }}",
+  });
+});
+
+setInterval(() => {
+  socket.emit("student_heartbeat", {
+    session_id: SESSION_ID,
+    violations: violationCount,
+    penalty:    totalPenalty,
+    answered:   document.querySelectorAll('.answer-radio:checked').length,
+    total:      TOTAL_QUESTIONS,
+  });
+}, 10000);
+
+// ── HD WEBCAM ────────────────────────────────────────────
+let videoStream = null;
+const videoEl   = document.getElementById("webcamVideo");
+const camStatus = document.getElementById("camStatus");
+const camLabel  = document.getElementById("camLabelText");
+const frameCanvas = document.createElement("canvas");
+
+async function startWebcam() {
+  camLabel.textContent = "Camera: Connecting...";
+  camStatus.classList.remove("live");
+  camStatus.style.background = "#ff4444";
+  document.getElementById("camPermBtn").style.display = "none";
+  try {
+    // Stop any existing stream first
+    if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); }
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width:  { ideal: 1280, min: 640 },
+        height: { ideal: 720,  min: 480 },
+        facingMode: "user",
+        frameRate: { ideal: 15 }
+      },
+      audio: false
+    });
+    videoEl.srcObject = videoStream;
+    camStatus.classList.add("live");
+    camStatus.style.background = "#22c55e";
+    camLabel.textContent = "Camera: Live HD ✓";
+    document.getElementById("camPermBtn").style.display = "none";
+    startFrameCapture();
+  } catch (err) {
+    camLabel.textContent = "Camera: Blocked ⚠️";
+    camStatus.style.background = "#f59e0b";
+    document.getElementById("camPermBtn").style.display = "block";
+    // Do NOT record as violation — user may just need to allow
+    console.warn("Camera blocked:", err.message);
+  }
+}
+
+function startFrameCapture() {
+  setInterval(() => {
+    if (!videoStream || !videoEl.videoWidth) return;
+    frameCanvas.width  = videoEl.videoWidth;
+    frameCanvas.height = videoEl.videoHeight;
+    frameCanvas.getContext("2d").drawImage(videoEl, 0, 0);
+    socket.emit("video_frame", {
+      session_id:   SESSION_ID,
+      student_name: "{{ session.full_name }}",
+      username:     "{{ session.username }}",
+      frame:        frameCanvas.toDataURL("image/jpeg", 0.7),
+    });
+  }, 3000);
+}
+startWebcam();
+
+// ── TIMER ────────────────────────────────────────────────
+const timerDisplay = document.getElementById('timerDisplay');
+const timerBox     = document.getElementById('timerBox');
+
+function updateTimer(){
+  if(timeLeft <= 0){
+    timerDisplay.textContent = '00:00';
+    timerBox.classList.add('timer-expired');
+    socket.emit("student_disconnect_exam", { session_id: SESSION_ID });
+    document.getElementById('realSubmitForm').submit();
+    return;
+  }
+  const m = Math.floor(timeLeft/60), s = timeLeft % 60;
+  timerDisplay.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  if(timeLeft <= 60) timerBox.classList.add('timer-warning');
+  timeLeft--;
+}
+setInterval(updateTimer, 1000);
+updateTimer();
+
+// ── SAVE ANSWERS ─────────────────────────────────────────
+document.querySelectorAll('.answer-radio').forEach(radio => {
+  radio.addEventListener('change', function(){
+    const qid = this.dataset.qid, val = this.value;
+    document.querySelectorAll(`[name="q_${qid}"]`).forEach(r => r.closest('.option-label').classList.remove('selected'));
+    this.closest('.option-label').classList.add('selected');
+    const qIds = [...new Set([...document.querySelectorAll('.answer-radio')].map(r=>r.dataset.qid))];
+    const idx  = qIds.indexOf(qid);
+    if(idx >= 0){ const dot = document.getElementById(`qnav-${idx+1}`); if(dot) dot.classList.add('answered'); }
+    fetch('/exam/save_answer', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id:SESSION_ID, question_id:parseInt(qid), chosen_ans:val})
+    });
+  });
+});
+
+function scrollToQ(n){ document.getElementById(`qcard-${n}`)?.scrollIntoView({behavior:'smooth',block:'center'}); }
+
+// ── VIOLATION ─────────────────────────────────────────────
+function reportViolation(type){
+  fetch('/exam/violation', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session_id:SESSION_ID, violation_type:type})
+  }).then(r=>r.json()).then(data=>{
+    if(data.status==='ok'){
+      violationCount = data.total_violations;
+      totalPenalty   = data.total_penalty;
+      document.getElementById('vioCount').textContent      = violationCount;
+      document.getElementById('penaltyDisplay').textContent = `-${totalPenalty}`;
+      socket.emit("student_violation_alert",{
+        session_id:SESSION_ID, student_name:"{{ session.full_name }}",
+        username:"{{ session.username }}", violation_type:type,
+        severity:data.severity, violations:violationCount,
+        penalty:totalPenalty, message:data.message,
+      });
+      const toast = document.getElementById('violationToast');
+      document.getElementById('violationMsg').textContent = data.message;
+      toast.style.display = 'flex';
+      setTimeout(()=>{ toast.style.display='none'; }, 4000);
+    }
+  });
+}
+
+document.addEventListener('contextmenu', e=>{ e.preventDefault(); reportViolation('right_click'); });
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) reportViolation('tab_switch'); });
+document.addEventListener('copy',  ()=>reportViolation('copy_paste'));
+document.addEventListener('paste', ()=>reportViolation('copy_paste'));
+document.addEventListener('mouseleave', e=>{ if(e.clientY<=0) reportViolation('mouse_leave'); });
+
+(function devToolsCheck(){
+  let devtools=false;
+  setInterval(()=>{
+    const wd=window.outerWidth-window.innerWidth, hd=window.outerHeight-window.innerHeight;
+    if(!devtools&&(wd>160||hd>160)){ devtools=true; reportViolation('dev_tools'); }
+    if(wd<=160&&hd<=160) devtools=false;
+  },1500);
+})();
+
+// ── SUBMIT ────────────────────────────────────────────────
+function confirmSubmit(){
+  const answered = document.querySelectorAll('.answer-radio:checked').length;
+  document.getElementById('submitSummary').innerHTML =
+    `You have answered <strong>${answered}</strong> out of <strong>${TOTAL_QUESTIONS}</strong> questions.<br>
+     Total penalty so far: <strong class="text-danger">-${totalPenalty} pts</strong>`;
+  new bootstrap.Modal(document.getElementById('submitModal')).show();
+}
+
+function doSubmit(){
+  socket.emit("student_disconnect_exam", { session_id: SESSION_ID });
+  document.getElementById('realSubmitForm').submit();
+}
+</script>
+{% endblock %}

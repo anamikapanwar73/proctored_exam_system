@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Results – ExamPortal{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:860px;">
+
+  <!-- RESULT HERO -->
+  <div class="result-hero {{ 'pass' if result.pass_fail == 'pass' else 'fail' }} mb-4">
+    <div class="result-icon">
+      {% if result.pass_fail == 'pass' %}
+        <i class="fas fa-trophy"></i>
+      {% else %}
+        <i class="fas fa-times-circle"></i>
+      {% endif %}
+    </div>
+    <div>
+      <h3 class="fw-900 mb-1">{{ result.title }}</h3>
+      <p class="mb-0 opacity-80">{{ result.full_name }} &nbsp;|&nbsp; {{ result.submitted_at.strftime('%d %b %Y, %I:%M %p') if result.submitted_at else '' }}</p>
+    </div>
+    <div class="result-score-block">
+      <div class="result-score">{{ result.final_score }}<span>/{{ result.total_marks }}</span></div>
+      <div class="result-pct">{{ result.percentage }}%</div>
+      <div class="result-status-badge">{{ result.pass_fail.upper() if result.pass_fail else '' }}</div>
+    </div>
+  </div>
+
+  <!-- SCORE BREAKDOWN -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-3">
+      <div class="stat-card blue">
+        <div class="stat-label">Raw Score</div>
+        <div class="stat-value">{{ result.raw_score }}</div>
+      </div>
+    </div>
+    <div class="col-sm-3">
+      <div class="stat-card red">
+        <div class="stat-label">Points Deducted</div>
+        <div class="stat-value text-danger">-{{ result.penalty_points }}</div>
+      </div>
+    </div>
+    <div class="col-sm-3">
+      <div class="stat-card green">
+        <div class="stat-label">Final Score</div>
+        <div class="stat-value">{{ result.final_score }}</div>
+      </div>
+    </div>
+    <div class="col-sm-3">
+      <div class="stat-card {{ 'green' if result.pass_fail == 'pass' else 'red' }}">
+        <div class="stat-label">Status</div>
+        <div class="stat-value">{{ result.pass_fail.upper() if result.pass_fail else '' }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIOLATIONS SECTION -->
+  {% if violations %}
+  <div class="section-card mb-4">
+    <div class="section-header">
+      <i class="fas fa-exclamation-triangle me-2 text-warning"></i>
+      <h6 class="mb-0 fw-700">Violations &amp; Deductions</h6>
+    </div>
+    <div class="section-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>#</th>
+            <th>Violation Type</th>
+            <th>Severity</th>
+            <th>Points Deducted</th>
+            <th>Detected At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in violations %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="fw-600">{{ v.violation_type.replace('_',' ').title() }}</td>
+            <td>
+              <span class="badge
+                {% if v.severity=='HIGH' %}bg-danger
+                {% elif v.severity=='MEDIUM' %}bg-warning text-dark
+                {% else %}bg-secondary{% endif %}">
+                {{ v.severity }}
+              </span>
+            </td>
+            <td class="text-danger fw-700">-{{ v.points_deducted }}</td>
+            <td class="text-muted small">{{ v.detected_at.strftime('%H:%M:%S') if v.detected_at else 'N/A' }}</td>
+          </tr>
+          {% endfor %}
+          <tr class="table-warning fw-700">
+            <td colspan="3" class="text-end">Total Penalty:</td>
+            <td class="text-danger">-{{ result.penalty_points }}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- DETAILED ANSWERS -->
+  <div class="section-card mb-4">
+    <div class="section-header">
+      <i class="fas fa-list-check me-2 text-primary"></i>
+      <h6 class="mb-0 fw-700">Detailed Answer Review</h6>
+    </div>
+    <div class="section-body">
+      {% for a in answers %}
+      <div class="answer-review {{ 'correct' if a.is_correct else 'wrong' }}">
+        <div class="answer-review-q">
+          <span class="q-num">Q{{ loop.index }}</span>
+          <span class="q-text">{{ a.question_text }}</span>
+        </div>
+        <div class="answer-opts-row">
+          {% for key, label in [('A',a.option_a),('B',a.option_b),('C',a.option_c),('D',a.option_d)] %}
+          <span class="ans-chip
+            {% if key == a.correct_ans %}chip-correct
+            {% elif key == a.chosen_ans and not a.is_correct %}chip-wrong
+            {% else %}chip-plain{% endif %}">
+            {{ key }}: {{ label }}
+            {% if key == a.correct_ans %}<i class="fas fa-check ms-1"></i>{% endif %}
+            {% if key == a.chosen_ans and not a.is_correct %}<i class="fas fa-times ms-1"></i>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        <div class="small mt-1">
+          Your answer:
+          <strong class="{{ 'text-success' if a.is_correct else 'text-danger' }}">
+            {{ a.chosen_ans or 'Not answered' }}
+          </strong>
+          &nbsp;|&nbsp; Correct:
+          <strong class="text-success">{{ a.correct_ans }}</strong>
+          &nbsp;|&nbsp;
+          <strong class="{{ 'text-success' if a.is_correct else 'text-danger' }}">
+            {{ '+' + a.marks|string if a.is_correct else '0' }} marks
+          </strong>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ACTIONS -->
+  <div class="d-flex gap-3 justify-content-center">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-primary fw-700 px-4">
+      <i class="fas fa-home me-2"></i>Back to Dashboard
+    </a>
+  </div>
+
+</div>
+{% endblock %}

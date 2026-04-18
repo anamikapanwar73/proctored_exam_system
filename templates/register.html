@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Register – ExamPortal{% endblock %}
+{% block content %}
+<div class="auth-wrapper">
+  <div class="auth-card" style="max-width:480px;">
+    <div class="auth-header">
+      <div class="auth-icon"><i class="fas fa-user-plus"></i></div>
+      <h2>Create Account</h2>
+      <p>Register to take exams</p>
+    </div>
+
+    <form method="POST" action="{{ url_for('register') }}">
+      <div class="mb-3">
+        <label class="form-label fw-600">Full Name</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-id-card"></i></span>
+          <input type="text" name="full_name" class="form-control" placeholder="Your full name" required/>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-600">Username</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-user"></i></span>
+          <input type="text" name="username" class="form-control" placeholder="Choose a username" required/>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-600">Email</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+          <input type="email" name="email" class="form-control" placeholder="your@email.com" required/>
+        </div>
+      </div>
+      <div class="mb-4">
+        <label class="form-label fw-600">Password</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-lock"></i></span>
+          <input type="password" name="password" class="form-control" placeholder="Choose a strong password" required/>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success w-100 btn-lg fw-700">
+        <i class="fas fa-user-plus me-2"></i>Register
+      </button>
+    </form>
+
+    <div class="auth-footer">
+      Already have an account? <a href="{{ url_for('login') }}" class="fw-600">Login here</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
