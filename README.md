@@ -73,11 +73,7 @@ Open browser: **http://localhost:5000**
 
 ---
 
-## 🔐 Default Login
-| Role  | Username | Password |
-|-------|----------|----------|
-| Admin | admin    | admin123 |
-
+## 🔐 Default Login :Admin credentials are configured via environment variables.
 ---
 
 ## 📦 database.py — Module Functions
